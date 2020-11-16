@@ -9,6 +9,7 @@ import com.ibm.wala.ipa.cha.ClassHierarchy;
 import com.ibm.wala.ipa.cha.ClassHierarchyFactory;
 import com.ibm.wala.shrikeCT.InvalidClassFileException;
 import com.ibm.wala.types.ClassLoaderReference;
+import com.ibm.wala.types.annotations.Annotation;
 import com.ibm.wala.util.collections.Iterator2Iterable;
 import com.ibm.wala.util.config.AnalysisScopeReader;
 
@@ -38,22 +39,11 @@ public class TestSelection {
             String exclusionPath = TestSelection.class.getResource("exclusion.txt").toString();
             // 生成分析域
             AnalysisScope scope = AnalysisScopeReader.readJavaScope("scope.txt", new File(exclusionPath), TestSelection.class.getClassLoader());
-
-            // 添加要分析的测试类文件
-            addClass(scope, Paths.get(path, "test-classes").toString());
-            // 记录所有测试类，后续的测试用例选择只会输出这些类的方法
-            for (Module m : scope.getModules(ClassLoaderReference.Application)) {
-                if (m instanceof ClassFileModule) {
-                    TestClass.add(((ClassFileModule) m).getClassName());
-                }
-            }
-
-            // 添加要分析的其他类文件
-            addClass(scope, Paths.get(path, "classes").toString());
+            // 添加要分析的类文件
+            addClass(scope, path);
 
             // 生成类层次
             ClassHierarchy cha = ClassHierarchyFactory.makeWithRoot(scope);
-
             // 构建调用图
             CHACallGraph graph = new CHACallGraph(cha);
             graph.init(new AllApplicationEntrypoints(scope, cha));
@@ -61,9 +51,9 @@ public class TestSelection {
             // 类、方法级别的 Dot 文件
             MyDot classDot = new MyDot("class");
             MyDot methodDot = new MyDot("method");
-
-            // 调用图
-            MyCallGraph methodCallGraph = new MyCallGraph();
+            // 类、方法级别的调用图
+            MyCallGraph classCallGraph = new MyCallGraph(MyCallGraph.ClassGraph);
+            MyCallGraph methodCallGraph = new MyCallGraph(MyCallGraph.MethodGraph);
 
             // 遍历调用图
             for (CGNode node : graph) {
@@ -76,6 +66,13 @@ public class TestSelection {
                 String className = node.getMethod().getDeclaringClass().getName().toString();
                 String methodSignature = node.getMethod().getSignature();
                 String methodName = className + " " + methodSignature;
+
+                // 利用 @Test 注解来判断是否为测试方法
+                for (Annotation annotation : node.getMethod().getAnnotations()) {
+                    if (annotation.getType().getName().toString().equals("Lorg/junit/Test")) {
+                        TestMethod.add(methodName);
+                    }
+                }
 
                 // 遍历调用此方法的方法
                 for (CGNode predNode : Iterator2Iterable.make(graph.getPredNodes(node))) {
@@ -96,6 +93,7 @@ public class TestSelection {
                     }
 
                     // 记录方法调用关系
+                    classCallGraph.ensureEdge(className, predClassName);
                     methodCallGraph.ensureEdge(methodName, predMethodName);
                 }
             }
@@ -107,7 +105,8 @@ public class TestSelection {
             }
 
             // 受影响的方法
-            Set<String> changed = new HashSet<>();
+            Set<String> changedClass = new HashSet<>();
+            Set<String> changedMethod = new HashSet<>();
 
             // 按行读取文件
             FileInputStream inputStream = new FileInputStream(change);
@@ -115,7 +114,8 @@ public class TestSelection {
             String str;
             while ((str = bufferedReader.readLine()) != null) {
                 // 记录受影响的方法
-                changed.add(str);
+                changedClass.add(str.split(" ")[0]);
+                changedMethod.add(str);
             }
             bufferedReader.close();
             inputStream.close();
@@ -123,12 +123,12 @@ public class TestSelection {
             // 判断输出模式
             if (Objects.equals(mode, "-m") || Objects.equals(mode, "-a")) {
                 // 输出方法级测试选择
-                Utils.saveFile("selection-method.txt", String.join("\n", methodCallGraph.getTest(changed, MyCallGraph.MethodMode)));
+                Utils.saveFile("selection-method.txt", String.join("\n", methodCallGraph.getTest(changedMethod)));
             }
 
             if (Objects.equals(mode, "-c") || Objects.equals(mode, "-a")) {
-                // 输出类级测试选择
-                Utils.saveFile("selection-class.txt", String.join("\n", methodCallGraph.getTest(changed, MyCallGraph.ClassMode)));
+                // 输出被选择的测试类
+                Utils.saveFile("selection-class.txt", String.join("\n", classCallGraph.getTest(changedClass)));
             }
         } catch (Exception e) {
             e.printStackTrace();
