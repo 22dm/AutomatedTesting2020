@@ -1,5 +1,3 @@
-import com.ibm.wala.classLoader.ClassFileModule;
-import com.ibm.wala.classLoader.Module;
 import com.ibm.wala.classLoader.ShrikeBTMethod;
 import com.ibm.wala.ipa.callgraph.AnalysisScope;
 import com.ibm.wala.ipa.callgraph.CGNode;
@@ -17,9 +15,7 @@ import java.io.BufferedReader;
 import java.io.File;
 import java.io.FileInputStream;
 import java.io.InputStreamReader;
-import java.nio.file.Paths;
 import java.util.HashSet;
-import java.util.Iterator;
 import java.util.Objects;
 import java.util.Set;
 
@@ -70,7 +66,7 @@ public class TestSelection {
                 // 利用 @Test 注解来判断是否为测试方法
                 for (Annotation annotation : node.getMethod().getAnnotations()) {
                     if (annotation.getType().getName().toString().equals("Lorg/junit/Test")) {
-                        TestMethod.add(methodName);
+                        TestMethod.testMethods.add(methodName);
                     }
                 }
 
